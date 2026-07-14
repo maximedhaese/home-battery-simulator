@@ -50,7 +50,7 @@ fluvius_csvs = [
 # 2. CONFIGURATION MATRIX SLIDERS (SIDEBAR)
 # ==========================================
 st.sidebar.header("🔧 Structural Spec Parameters")
-capacity = st.sidebar.slider("Net Battery Capacity (kWh)", min_value=2.0, max_value=20.0, value=9.0, step=0.5)
+capacity = st.sidebar.slider("Net Battery Capacity (kWh)", min_value=0.0, max_value=20.0, value=9.0, step=0.5)
 power = st.sidebar.slider("Max Inverter Power (kW)", min_value=2.0, max_value=12.0, value=7.5, step=0.5)
 
 formula_cost = 1850 * (capacity ** 0.62)
