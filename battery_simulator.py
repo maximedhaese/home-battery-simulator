@@ -17,7 +17,8 @@ def simulate_battery_roi(
     calc_end_date=None,       
     plot_start_date=None,     
     plot_end_date=None,
-    generate_graph=True       
+    generate_graph=True,
+    solar_scale_factor=1.0 # Added scaling factor parameter
 ):
     # ==========================================
     # 1. LOAD & PREP DATA
@@ -66,6 +67,15 @@ def simulate_battery_roi(
     df['estimated_production_kwh'] = df['historic_injection_kwh'] + df['distributed_self_consumed_kwh']
     df['estimated_consumption_kwh'] = df['historic_offtake_kwh'] + df['estimated_production_kwh'] - df['historic_injection_kwh']
 
+    # --- NEW: APPLY SOLAR SCALING FACTOR ---
+    # Scale 15-minute generation
+    df['scaled_production_kwh'] = df['estimated_production_kwh'] * solar_scale_factor
+    
+    # Recalculate grid flow dynamics before battery (production_scaled - consumption_original)
+    df['net_grid_before_battery'] = df['scaled_production_kwh'] - df['estimated_consumption_kwh']
+    df['scaled_injection_before_battery'] = df['net_grid_before_battery'].clip(lower=0)
+    df['scaled_offtake_before_battery'] = (-df['net_grid_before_battery']).clip(lower=0)
+
     df = df.drop(columns=['solar_date', 'day_of_year', 'weight', 'normalized_weight', 'distributed_self_consumed_kwh', 'daily_injection_kwh', 'daily_self_consumed_kwh'], errors='ignore')
 
     # Filter Calculation Date Range
@@ -88,7 +98,8 @@ def simulate_battery_roi(
     current_soc = 0.0  
     soc_history, new_injection_history, new_offtake_history = [], [], []
 
-    for inj, off in zip(df['historic_injection_kwh'], df['historic_offtake_kwh']):
+    # Loop over the newly derived scaled baseline instead of the raw historical parameters
+    for inj, off in zip(df['scaled_injection_before_battery'], df['scaled_offtake_before_battery']):
         net_energy = inj - off 
         
         if net_energy > 0:
@@ -120,8 +131,9 @@ def simulate_battery_roi(
     days_in_dataset = (df['timestamp'].max() - df['timestamp'].min()).days
     years_in_dataset = max(days_in_dataset, 1) / 365.25
     
-    annual_orig_offtake = df['historic_offtake_kwh'].sum() / years_in_dataset
-    annual_orig_injection = df['historic_injection_kwh'].sum() / years_in_dataset
+    # Financials now cleanly reference the scaled base case
+    annual_orig_offtake = df['scaled_offtake_before_battery'].sum() / years_in_dataset
+    annual_orig_injection = df['scaled_injection_before_battery'].sum() / years_in_dataset
     annual_new_offtake = df['new_offtake_kwh'].sum() / years_in_dataset
     annual_new_injection = df['new_injection_kwh'].sum() / years_in_dataset
 
@@ -142,6 +154,7 @@ def simulate_battery_roi(
         f"       📊 ANNUAL FINANCIAL MATRIX BREAKDOWN       \n"
         f"==================================================\n"
         f" Battery Specs:     {battery_capacity_kwh:5.1f} kWh Net | {max_power_kw:4.1f} kW Inverter\n"
+        f" Solar Scale:       {solar_scale_factor*100:5.1f}%\n"
         f" Calc Duration:     {years_in_dataset:5.2f} Years total window\n"
         f" Network Tariffs:   Offtake €{price_offtake:.2f}/kWh | Injection €{price_injection:.2f}/kWh\n"
         f"--------------------------------------------------\n"
@@ -184,12 +197,12 @@ def simulate_battery_roi(
     )
 
     # Subplot 1
-    fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['estimated_production_kwh'], name='Estimated Solar Gen.', line=dict(color='#ff7f0e', width=2), fill='tozeroy', legend='legend'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['scaled_production_kwh'], name='Estimated Solar Gen. (Scaled)', line=dict(color='#ff7f0e', width=2), fill='tozeroy', legend='legend'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['estimated_consumption_kwh'], name='Gross Consumption Demand', line=dict(color='#9467bd', width=2), legend='legend'), row=1, col=1)
     
-    # Subplot 2: Gecorrigeerde regel hier (:= is weg)
-    fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['historic_injection_kwh'], name='Orig. Injection (No Bat)', line=dict(color='rgba(44, 160, 44, 0.65)', dash='dot', width=2.5), legend='legend2'), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['historic_offtake_kwh'], name='Orig. Offtake (No Bat)', line=dict(color='rgba(214, 39, 40, 0.65)', dash='dot', width=2.5), legend='legend2'), row=2, col=1)
+    # Subplot 2: Shows the scaled baselines without battery vs new dispatch configurations
+    fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['scaled_injection_before_battery'], name='Scaled Injection (No Bat)', line=dict(color='rgba(44, 160, 44, 0.65)', dash='dot', width=2.5), legend='legend2'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['scaled_offtake_before_battery'], name='Scaled Offtake (No Bat)', line=dict(color='rgba(214, 39, 40, 0.65)', dash='dot', width=2.5), legend='legend2'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['new_injection_kwh'], name='New Injection (With Bat)', line=dict(color='rgba(0, 230, 115, 1.0)', width=2), legend='legend2'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df_slice['timestamp'], y=df_slice['new_offtake_kwh'], name='New Offtake (With Bat)', line=dict(color='rgba(255, 51, 51, 1.0)', width=2), legend='legend2'), row=2, col=1)
     
