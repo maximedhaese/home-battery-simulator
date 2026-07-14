@@ -50,8 +50,11 @@ fluvius_csvs = [
 # 2. CONFIGURATION MATRIX SLIDERS (SIDEBAR)
 # ==========================================
 st.sidebar.header("🔧 Structural Spec Parameters")
-capacity = st.sidebar.slider("Net Battery Capacity (kWh)", min_value=0.0, max_value=20.0, value=9.0, step=0.5)
+capacity = st.sidebar.slider("Net Battery Capacity (kWh)", min_value=2.0, max_value=20.0, value=9.0, step=0.5)
 power = st.sidebar.slider("Max Inverter Power (kW)", min_value=2.0, max_value=12.0, value=7.5, step=0.5)
+
+# NEW: Solar generation scale slider (e.g. 100% means factor 1.0, 110% means factor 1.1)
+solar_scale = st.sidebar.slider("Solar Panel Generation Scale (%)", min_value=50, max_value=250, value=100, step=5) / 100.0
 
 formula_cost = 1850 * (capacity ** 0.62)
 battery_cost = st.sidebar.number_input(
@@ -88,7 +91,8 @@ if st.sidebar.button("🚀 Run System Analytics", use_container_width=True):
                 calc_start_date=calc_start.strftime('%d-%m-%Y'),
                 calc_end_date=calc_end.strftime('%d-%m-%Y'),
                 plot_start_date='01-06-2025', plot_end_date='01-07-2025',
-                generate_graph=True
+                generate_graph=True,
+                solar_scale_factor=solar_scale # Pass scaling factor to core function
             )
             
             # --- HOOFDRESULTATEN RENDER ---
@@ -103,12 +107,11 @@ if st.sidebar.button("🚀 Run System Analytics", use_container_width=True):
             st.plotly_chart(base["dashboard_figure"], use_container_width=True)
             
             # ==========================================
-            # 4. SENSITIVITY ENGINE (OAT MET BATTERIJ CAPACITEIT)
+            # 4. SENSITIVITY ENGINE (OAT MET BATTERIJ CAPACITEIT & SOLAR SCALE)
             # ==========================================
             st.write("---")
             st.subheader("🔍 What happens if my assumptions change? (Sensitivity Analysis)")
             
-            # Makkelijk te begrijpen uitleg voor de gebruiker
             st.markdown(
                 """
                 This chart maps how sensitive your financial return is to real-world changes. 
@@ -121,13 +124,14 @@ if st.sidebar.button("🚀 Run System Analytics", use_container_width=True):
                 """
             )
             
-            # Definiëer de variabelen inclusief de nieuwe Batterij Capaciteit
+            # Definiëer de variabelen inclusief de nieuwe Batterij Capaciteit en Solar Scaling Factor
             sens_vars = {
                 "Grid Purchase Price": {"var": "price_offtake", "low": price_offtake * 0.8, "high": price_offtake * 1.2},
                 "Surplus Injection Rate": {"var": "price_injection", "low": price_injection * 0.8, "high": price_injection * 1.2},
                 "Total Asset Capital Cost": {"var": "battery_cost", "low": battery_cost * 0.8, "high": battery_cost * 1.2},
                 "Roundtrip Efficiency": {"var": "efficiency", "low": 0.85, "high": 0.98},
-                "Net Battery Capacity": {"var": "battery_capacity_kwh", "low": capacity * 0.8, "high": capacity * 1.2}
+                "Net Battery Capacity": {"var": "battery_capacity_kwh", "low": capacity * 0.8, "high": capacity * 1.2},
+                "Solar Generation Scale": {"var": "solar_scale_factor", "low": solar_scale * 0.8, "high": solar_scale * 1.2}
             }
             
             oat_records = []
@@ -142,7 +146,8 @@ if st.sidebar.button("🚀 Run System Analytics", use_container_width=True):
                     "battery_cost": battery_cost,
                     "calc_start_date": calc_start.strftime('%d-%m-%Y'),
                     "calc_end_date": calc_end.strftime('%d-%m-%Y'),
-                    "generate_graph": False
+                    "generate_graph": False,
+                    "solar_scale_factor": solar_scale # baseline passed by default
                 }
                 
                 # Bereken impact van een verlaagde waarde (Low parameter)
@@ -189,7 +194,7 @@ if st.sidebar.button("🚀 Run System Analytics", use_container_width=True):
             ))
             
             tornado.update_layout(
-                template="plotly_dark", barmode="overlay", height=450,
+                template="plotly_dark", barmode="overlay", height=480,
                 paper_bgcolor='#0A0C10', 
                 plot_bgcolor='#0A0C10',  
                 xaxis_title="Resulting Payback Horizon (Years)",
